@@ -1,66 +1,47 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const fs = require('fs');
 
-// Importa os sistemas separados
-const authSystem = require('./authSystem.js');
-const embedSystem = require('./embedSystem.js');
-const ticketSystem = require('./ticketSystem.js');
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+// Commands
+client.commands = new Collection();
+['AuthSystem', 'EmbedSystem', 'Ticket'].forEach(file => {
+    const command = require(`./${file}.js`);
+    client.commands.set(command.data.name, command);
 });
 
-// Quando o bot estiver online
-client.once(Events.ClientReady, async (c) => {
-  console.log(`Bot online como ${c.user.tag}`);
-
-  // Registrar comandos globais
-  const commands = [
-    authSystem.slashCommand(),
-    embedSystem.slashCommand(),
-    ticketSystem.slashCommand()
-  ].map(cmd => cmd.toJSON());
-
-  const { REST } = require('discord.js');
-  const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-
-  try {
-    await rest.put(Routes.applicationCommands(c.user.id), { body: commands });
-    console.log('Comandos registrados.');
-  } catch (err) {
-    console.error('Erro ao registrar comandos:', err);
-  }
+client.once('ready', () => {
+    console.log(`${client.user.tag} está online!`);
 });
 
-// Captura todas as interações
-client.on(Events.InteractionCreate, async (interaction) => {
-  try {
-    // Auth System
-    if (interaction.isChatInputCommand() && interaction.commandName === 'auth') {
-      return authSystem.handle(interaction, client);
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isChatInputCommand() && !interaction.isButton()) return;
+
+    // Slash Commands
+    if (interaction.isChatInputCommand()) {
+        const command = client.commands.get(interaction.commandName);
+        if (!command) return;
+        try {
+            await command.execute(interaction, client);
+        } catch (error) {
+            console.error(error);
+            await interaction.reply({ content: 'Ocorreu um erro ao executar o comando!', ephemeral: true });
+        }
     }
 
-    // Embed System
-    if (interaction.isChatInputCommand() && interaction.commandName === 'embed') {
-      return embedSystem.handle(interaction, client);
+    // Buttons
+    if (interaction.isButton()) {
+        for (const command of client.commands.values()) {
+            if (command.buttonExecute) {
+                try {
+                    await command.buttonExecute(interaction, client);
+                } catch (error) {
+                    console.error(error);
+                }
+            }
+        }
     }
+});
 
-    // Ticket System
-    if (interaction.isChatInputCommand() && interaction.commandName === 'ticket') {
-      return ticketSystem.handle(interaction, client);
-    }
-
-    // Botões, modais e selects
-    if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
-      // Auth buttons
-      if (interaction.customId.startsWith('auth_')) {
-        return authSystem.handleButton(interaction, client);
-      }
-
-      // Embed modals/buttons
-      if (interaction.customId.startsWith('embed_')) {
-        return
+client.login(process.env.TOKEN);
