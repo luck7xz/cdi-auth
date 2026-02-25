@@ -1,32 +1,71 @@
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { token, guildId } = require('./config.json');
 
-// === CONFIGURAÇÕES DIRETAS ===
-const BOT_TOKEN ='MTQ3NjA1MTgxMjM1NTI3Njg1Mw.GprRje.f4CZ6svVNrWdJSfPsXcQhMFbOQCWoWyCS0jJe8';
-const AUTORIZED_USERS = ['1473652628209532940']; // Coloque IDs que podem usar o auth
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// Criando o client
-const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+// banco simples em memória
+const users = {};
+
+const commands = [
+  new SlashCommandBuilder()
+    .setName('register')
+    .setDescription('Registra seu usuário')
+    .addStringOption(option => 
+      option.setName('username')
+            .setDescription('Seu nome de usuário')
+            .setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName('login')
+    .setDescription('Faz login')
+    .addStringOption(option => 
+      option.setName('username')
+            .setDescription('Seu nome de usuário')
+            .setRequired(true)
+    )
+].map(cmd => cmd.toJSON());
+
+// registra os comandos no servidor
+const rest = new REST({ version: '10' }).setToken(token);
+(async () => {
+  try {
+    console.log('Registrando comandos...');
+    await rest.put(Routes.applicationGuildCommands(client.user?.id || 'CLIENT_ID_AQUI', guildId), { body: commands });
+    console.log('Comandos registrados com sucesso!');
+  } catch (error) {
+    console.error(error);
+  }
+})();
+
+client.on('ready', () => {
+  console.log(`Logado como ${client.user.tag}`);
 });
 
-// Evento quando o bot estiver pronto
-client.once('ready', () => {
-    console.log(`Bot logado como ${client.user.tag}`);
-});
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isCommand()) return;
 
-// Evento de mensagem
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
+  const { commandName, options, user } = interaction;
 
-    // Comando de autenticação
-    if (message.content.startsWith('!auth')) {
-        if (AUTORIZED_USERS.includes(message.author.id)) {
-            message.reply('✅ Você está autorizado!');
-        } else {
-            message.reply('❌ Você não tem permissão para usar este comando.');
-        }
+  if (commandName === 'register') {
+    const username = options.getString('username');
+
+    if (users[user.id]) {
+      return interaction.reply({ content: 'Você já está registrado!', ephemeral: true });
     }
+
+    users[user.id] = { username };
+    return interaction.reply({ content: `Registrado com sucesso como **${username}**!`, ephemeral: true });
+  }
+
+  if (commandName === 'login') {
+    const username = options.getString('username');
+
+    if (!users[user.id] || users[user.id].username !== username) {
+      return interaction.reply({ content: 'Usuário não encontrado ou incorreto!', ephemeral: true });
+    }
+
+    return interaction.reply({ content: `Login feito com sucesso, **${username}**!`, ephemeral: true });
+  }
 });
 
-// Login do bot
-client.login(BOT_TOKEN);
+client.login(token);
