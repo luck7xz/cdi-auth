@@ -1,55 +1,36 @@
-import {
-    SlashCommandBuilder,
-    PermissionFlagsBits,
-    EmbedBuilder,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle
-} from "discord.js";
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
-const VERIFY_ROLE = "1473662501769183327"; // Cargo que será dado
-const LOG_CHANNEL = "1476107996437155871"; // Canal de logs
-
-export default {
+module.exports = {
     data: new SlashCommandBuilder()
-        .setName("auth")
-        .setDescription("Criar painel de verificação")
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+        .setName('auth')
+        .setDescription('Sistema de verificação'),
 
     async execute(interaction) {
         const embed = new EmbedBuilder()
-            .setTitle("🔐 Verificação")
-            .setDescription("Clique no botão abaixo para se verificar no nosso servidor abaixo")
-            .setColor("Blue")
-            .setFooter({ text: "CDI | Bot • Feito pelo Dev Luckxz_7" });
+            .setTitle('Clique para se verificar!')
+            .setDescription('Clique no botão abaixo para se verificar no nosso servidor.')
+            .setColor('Blue');
 
-        const button = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId("verify_button")
-                .setLabel("Verificar")
-                .setStyle(ButtonStyle.Primary)
-        );
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('verify')
+                    .setLabel('Verificar')
+                    .setStyle(ButtonStyle.Primary)
+            );
 
-        await interaction.channel.send({ embeds: [embed], components: [button] });
-        return interaction.reply({ content: "✅ Painel de verificação enviado.", ephemeral: true });
+        await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
     },
 
-    async handleInteraction(interaction) {
-        if (!interaction.isButton()) return;
-        if (interaction.customId !== "verify_button") return;
+    async buttonExecute(interaction) {
+        if (interaction.customId !== 'verify') return;
 
-        const member = interaction.member;
-        if (member.roles.cache.has(VERIFY_ROLE)) {
-            return interaction.reply({ content: "❌ Você já está verificado.", ephemeral: true });
-        }
+        const role = interaction.guild.roles.cache.get('1473662501769183327');
+        if (role) await interaction.member.roles.add(role);
 
-        await member.roles.add(VERIFY_ROLE);
+        const logChannel = interaction.guild.channels.cache.get('1476107996437155871');
+        if (logChannel) logChannel.send(`O ${interaction.user.tag} se verificou no servidor.`);
 
-        const logChannel = interaction.guild.channels.cache.get(LOG_CHANNEL);
-        if (logChannel) {
-            logChannel.send(`📥 O ${interaction.user} se verificou no servidor.`);
-        }
-
-        return interaction.reply({ content: "✅ Você foi verificado com sucesso!", ephemeral: true });
+        await interaction.reply({ content: 'Você foi verificado com sucesso!', ephemeral: true });
     }
 };
