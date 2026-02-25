@@ -15,7 +15,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-// 🔐 Quando o bot ligar
+// 🔐 Bot online
 client.once(Events.ClientReady, async (c) => {
   console.log(`🔐 CDI | Auth online como ${c.user.tag}`);
 
@@ -42,6 +42,7 @@ client.once(Events.ClientReady, async (c) => {
 // 🔘 Interações
 client.on(Events.InteractionCreate, async (interaction) => {
 
+  // Slash command /painel
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'painel') {
 
@@ -66,6 +67,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
 
+  // Botão de autenticação
   if (interaction.isButton()) {
     if (interaction.customId === 'auth_button') {
       await interaction.reply({
@@ -76,4 +78,5 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+// 🔑 Login seguro com variável de ambiente
 client.login(process.env.TOKEN);
