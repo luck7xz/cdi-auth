@@ -1,43 +1,62 @@
-const { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, SelectMenuBuilder } = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('ticket')
-        .setDescription('Sistema de tickets'),
-
+        .setDescription('Gerencie tickets'),
     async execute(interaction) {
         if (!interaction.member.permissions.has('Administrator')) {
-            return interaction.reply({ content: 'Você não tem permissão para criar tickets.', ephemeral: true });
+            return interaction.reply({ content: 'Apenas administradores podem criar ou editar tickets.', ephemeral: true });
         }
 
-        const row = new ActionRowBuilder()
-            .addComponents(
-                new StringSelectMenuBuilder()
-                    .setCustomId('ticket-menu')
-                    .setPlaceholder('Selecione uma opção')
-                    .addOptions([
-                        {
-                            label: '💬 Seja ADM',
-                            value: 'adm',
-                            description: 'Abra um ticket para suporte administrativo'
-                        },
-                        {
-                            label: '🛠️ Suporte',
-                            value: 'suporte',
-                            description: 'Abra um ticket de suporte'
-                        },
-                        {
-                            label: '❌ Cancelar',
-                            value: 'cancelar',
-                            description: 'Cancelar ticket'
-                        }
-                    ])
-            );
+        const embed = new EmbedBuilder()
+            .setTitle('Painel de Tickets')
+            .setDescription('Escolha uma opção abaixo para abrir um ticket.')
+            .setColor('Blue');
 
-        await interaction.reply({ content: 'Selecione uma opção abaixo:', components: [row], ephemeral: true });
-    },
+        const select = new ActionRowBuilder().addComponents(
+            new SelectMenuBuilder()
+                .setCustomId('ticket_select')
+                .setPlaceholder('Escolha uma opção')
+                .addOptions([
+                    { label: '💬 Seja ADM', description: 'Abrir ticket de administração', value: 'adm' },
+                    { label: '❓ Suporte', description: 'Abrir ticket de suporte', value: 'suporte' },
+                    { label: '📝 Outros', description: 'Abrir outro tipo de ticket', value: 'outros' }
+                ])
+        );
 
-    async buttonExecute(interaction, client) {
-        // Aqui você pode colocar a lógica de tickets caso queira usar botões também
+        await interaction.reply({ embeds: [embed], components: [select], ephemeral: false });
+
+        const collector = interaction.channel.createMessageComponentCollector({ componentType: 'SELECT_MENU', time: 60000 });
+
+        collector.on('collect', async i => {
+            if (i.customId === 'ticket_select') {
+                const category = await interaction.guild.channels.create({
+                    name: `ticket-${i.user.username}`,
+                    type: 4 // GuildCategory
+                });
+
+                const channel = await interaction.guild.channels.create({
+                    name: `ticket-${i.user.username}`,
+                    type: 0,
+                    parent: category.id,
+                    permissionOverwrites: [
+                        { id: i.user.id, allow: ['ViewChannel', 'SendMessages'] },
+                        { id: '1473653390834798653', allow: ['ViewChannel', 'SendMessages'] }, 
+                        { id: '1473664213128974481', allow: ['ViewChannel', 'SendMessages'] }, 
+                        { id: '1474839295989780622', allow: ['ViewChannel', 'SendMessages'] },
+                        { id: interaction.guild.id, deny: ['ViewChannel'] }
+                    ]
+                });
+
+                const ticketEmbed = new EmbedBuilder()
+                    .setTitle('Ticket Criado')
+                    .setDescription(`**Canal:** ${channel.name}\n**Opção:** ${i.values[0]}\n**Dono:** <@${i.user.id}> - **ID:** ${i.user.id}\n**Fechado por:** Ninguém\n**Responsável:** Ninguém\n**Motivo:** Aberto`)
+                    .setColor('Blue');
+
+                await channel.send({ embeds: [ticketEmbed] });
+                await i.reply({ content: `Seu ticket foi criado em ${channel}`, ephemeral: true });
+            }
+        });
     }
 };
