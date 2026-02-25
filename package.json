@@ -1,0 +1,9 @@
+{
+  "name": "cdi-auth",
+  "version": "1.0.0",
+  "description": "Bot feito por Luckxz_7",
+  "main": "index.js",
+  "dependencies": {
+    "discord.js": "^14.14.1"
+  }
+}
