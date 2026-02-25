@@ -1,36 +1,33 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
 module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('auth')
-        .setDescription('Sistema de verificação'),
-
-    async execute(interaction) {
+    name: 'auth',
+    description: 'Verifique-se no servidor',
+    async execute(interaction, client) {
         const embed = new EmbedBuilder()
-            .setTitle('Clique para se verificar!')
+            .setTitle('Verificação')
             .setDescription('Clique no botão abaixo para se verificar no nosso servidor.')
             .setColor('Blue');
 
-        const row = new ActionRowBuilder()
-            .addComponents(
-                new ButtonBuilder()
-                    .setCustomId('verify')
-                    .setLabel('Verificar')
-                    .setStyle(ButtonStyle.Primary)
-            );
+        const button = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('auth_button')
+                .setLabel('Verificar')
+                .setStyle(ButtonStyle.Primary)
+        );
 
-        await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
-    },
+        await interaction.reply({ embeds: [embed], components: [button], ephemeral: true });
 
-    async buttonExecute(interaction) {
-        if (interaction.customId !== 'verify') return;
+        const collector = interaction.channel.createMessageComponentCollector({ componentType: 'BUTTON', time: 60000 });
 
-        const role = interaction.guild.roles.cache.get('1473662501769183327');
-        if (role) await interaction.member.roles.add(role);
+        collector.on('collect', async i => {
+            if (i.customId === 'auth_button') {
+                await i.member.roles.add('1473662501769183327'); // Cargo ao clicar
+                await i.reply({ content: 'Você foi verificado com sucesso!', ephemeral: true });
 
-        const logChannel = interaction.guild.channels.cache.get('1476107996437155871');
-        if (logChannel) logChannel.send(`O ${interaction.user.tag} se verificou no servidor.`);
-
-        await interaction.reply({ content: 'Você foi verificado com sucesso!', ephemeral: true });
+                const logChannel = await client.channels.fetch('1476107996437155871');
+                logChannel.send(`O ${i.user} se verificou no servidor.`);
+            }
+        });
     }
 };
