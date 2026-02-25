@@ -15,7 +15,7 @@ const {
   StringSelectMenuBuilder,
   PermissionFlagsBits,
   ChannelType,
-  OverwriteType
+  AttachmentBuilder
 } = require('discord.js');
 
 const client = new Client({
@@ -28,216 +28,251 @@ const client = new Client({
 
 const CARGO_PERMITIDO = '1474839295989780622';
 
-// =====================
-// STORAGE (em memória)
-// =====================
-// paineis: Map<guildId, Map<painelId, painelData>>
 const paineis = new Map();
-// tickets: Map<channelId, ticketData>
 const tickets = new Map();
-// contadores: Map<guildId, number>
 const contadores = new Map();
-// sessoes de criação/edição
+const sessoes = new Map();
 const sessoesTicket = new Map();
 
+// =====================
+// UTILITÁRIOS
+// =====================
+
+function temPermissao(member) {
+  const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
+  const hasCargo = member.roles.cache.has(CARGO_PERMITIDO);
+  return isAdmin || hasCargo;
+}
+
 function getPaineis(guildId) {
-  if (!paineis.has(guildId)) paineis.set(guildId, new Map());
+  if (!paineis.has(guildId)) {
+    paineis.set(guildId, new Map());
+  }
   return paineis.get(guildId);
 }
 
 function getContador(guildId) {
-  if (!contadores.has(guildId)) contadores.set(guildId, 0);
-  const n = contadores.get(guildId) + 1;
-  contadores.set(guildId, n);
-  return String(n).padStart(4, '0');
+  const atual = contadores.get(guildId) || 0;
+  const novo = atual + 1;
+  contadores.set(guildId, novo);
+  return String(novo).padStart(4, '0');
 }
 
-// =====================
-// PERMISSÃO
-// =====================
-function temPermissao(member) {
-  return (
-    member.permissions.has(PermissionFlagsBits.Administrator) ||
-    member.roles.cache.has(CARGO_PERMITIDO)
-  );
-}
-
-// =====================
-// SESSÃO PADRÃO
-// =====================
-function novaSessao() {
+function novaSessaoTicket() {
   return {
     titulo: 'Suporte',
-    descricao: 'Selecione uma opção abaixo para abrir seu ticket.',
+    descricao: 'Selecione uma opcao abaixo para abrir seu ticket.',
     cor: '#2b2d31',
     autor: null,
     imagem: null,
     thumbnail: null,
     rodape: null,
-    mensagemSelecao: '📋 Selecione o tipo de atendimento:',
+    mensagemSelecao: 'Selecione o tipo de atendimento:',
     opcoes: [],
-    canalId: null,
     categoriaId: null,
     logsId: null,
-    cargoMarcadoId: null,
+    cargoMarcadoId: null
   };
 }
 
 // =====================
-// MONTAR EMBED PAINEL
+// MONTAR EMBEDS
 // =====================
-function montarEmbedPainel(sessao) {
+
+function montarEmbed(s) {
   const embed = new EmbedBuilder();
-  if (sessao.titulo) embed.setTitle(sessao.titulo);
-  if (sessao.descricao) embed.setDescription(sessao.descricao);
-  if (sessao.cor) { try { embed.setColor(sessao.cor); } catch {} }
-  if (sessao.autor) embed.setAuthor({ name: sessao.autor });
-  if (sessao.imagem) embed.setImage(sessao.imagem);
-  if (sessao.thumbnail) embed.setThumbnail(sessao.thumbnail);
-  if (sessao.rodape) embed.setFooter({ text: sessao.rodape });
+  if (s.titulo) embed.setTitle(s.titulo);
+  if (s.descricao) embed.setDescription(s.descricao);
+  if (s.autor) embed.setAuthor({ name: s.autor });
+  if (s.imagem) embed.setImage(s.imagem);
+  if (s.thumbnail) embed.setThumbnail(s.thumbnail);
+  if (s.rodape) embed.setFooter({ text: s.rodape });
+  try { if (s.cor) embed.setColor(s.cor); } catch (e) { embed.setColor('#2b2d31'); }
   return embed;
 }
 
-// =====================
-// MONTAR SELECT DE OPÇÕES DO PAINEL (para usuários abrirem ticket)
-// =====================
+function montarBotoesCustom(sessao) {
+  if (!sessao.botoes || sessao.botoes.length === 0) return null;
+  const row = new ActionRowBuilder();
+  for (const btn of sessao.botoes) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setLabel(btn.label)
+        .setStyle(ButtonStyle.Link)
+        .setURL(btn.url)
+    );
+  }
+  return row;
+}
+
 function montarSelectOpcoes(sessao, painelId) {
   if (!sessao.opcoes || sessao.opcoes.length === 0) return null;
+  const options = sessao.opcoes.map(function(op, i) {
+    const opt = { label: op.label, value: String(i) };
+    if (op.descricao) opt.description = op.descricao;
+    if (op.emoji) opt.emoji = op.emoji;
+    return opt;
+  });
   const select = new StringSelectMenuBuilder()
-    .setCustomId(`ticket_abrir_${painelId}`)
+    .setCustomId('ticket_abrir_' + painelId)
     .setPlaceholder(sessao.mensagemSelecao)
-    .addOptions(sessao.opcoes.map((op, i) => ({
-      label: op.label,
-      value: String(i),
-      description: op.descricao || undefined,
-      emoji: op.emoji || undefined
-    })));
+    .addOptions(options);
   return new ActionRowBuilder().addComponents(select);
 }
 
 // =====================
-// MENU PRINCIPAL DO /ticket
+// MENUS
 // =====================
-function menuPrincipal() {
+
+function menuPrincipalTicket() {
   const select = new StringSelectMenuBuilder()
     .setCustomId('ticket_menu_principal')
-    .setPlaceholder('⚙️ O que deseja fazer?')
+    .setPlaceholder('O que deseja fazer?')
     .addOptions([
-      { label: '➕ Criar Painel', value: 'criar', description: 'Cria um novo painel de tickets' },
-      { label: '✏️ Editar Painel', value: 'editar', description: 'Edita um painel existente' },
-      { label: '🗑️ Excluir Painel', value: 'excluir', description: 'Exclui um painel existente' },
+      { label: 'Criar Painel', value: 'criar', emoji: '➕' },
+      { label: 'Editar Painel', value: 'editar', emoji: '✏️' },
+      { label: 'Excluir Painel', value: 'excluir', emoji: '🗑️' }
     ]);
   return new ActionRowBuilder().addComponents(select);
 }
 
-// =====================
-// MENU DE CONFIGURAÇÃO DO PAINEL
-// =====================
 function menuConfigPainel() {
   const select = new StringSelectMenuBuilder()
     .setCustomId('ticket_config_painel')
-    .setPlaceholder('⚙️ Configure seu painel')
+    .setPlaceholder('Configure seu painel')
     .addOptions([
-      { label: '📝 Título', value: 'titulo' },
-      { label: '📄 Descrição', value: 'descricao' },
-      { label: '🎨 Cor', value: 'cor' },
-      { label: '✍️ Autor', value: 'autor' },
-      { label: '🖼️ Imagem', value: 'imagem' },
-      { label: '🔲 Thumbnail', value: 'thumbnail' },
-      { label: '📋 Rodapé', value: 'rodape' },
-      { label: '🔧 Configurações Gerais', value: 'geral' },
-      { label: '📌 Gerenciar Opções', value: 'opcoes' },
-      { label: '💾 Salvar Painel', value: 'salvar' },
-      { label: '📤 Salvar e Enviar Painel', value: 'enviar' },
-      { label: '❌ Cancelar', value: 'cancelar' },
+      { label: 'Titulo', value: 'titulo', emoji: '📝' },
+      { label: 'Descricao', value: 'descricao', emoji: '📄' },
+      { label: 'Cor', value: 'cor', emoji: '🎨' },
+      { label: 'Autor', value: 'autor', emoji: '✍️' },
+      { label: 'Imagem', value: 'imagem', emoji: '🖼️' },
+      { label: 'Thumbnail', value: 'thumbnail', emoji: '🔲' },
+      { label: 'Rodape', value: 'rodape', emoji: '📋' },
+      { label: 'Configuracoes Gerais', value: 'geral', emoji: '🔧' },
+      { label: 'Gerenciar Opcoes', value: 'opcoes', emoji: '📌' },
+      { label: 'Salvar Painel', value: 'salvar', emoji: '💾' },
+      { label: 'Salvar e Enviar', value: 'enviar', emoji: '📤' },
+      { label: 'Cancelar', value: 'cancelar', emoji: '❌' }
     ]);
   return new ActionRowBuilder().addComponents(select);
 }
 
-// =====================
-// MENU DE OPÇÕES DO PAINEL
-// =====================
-function menuOpcoesPainel() {
+function menuGerenciarOpcoes() {
   const select = new StringSelectMenuBuilder()
     .setCustomId('ticket_config_opcoes')
-    .setPlaceholder('📌 Gerenciar opções do painel')
+    .setPlaceholder('Gerenciar opcoes do painel')
     .addOptions([
-      { label: '✏️ Alterar mensagem de seleção', value: 'msg_selecao' },
-      { label: '➕ Criar opção', value: 'criar_opcao' },
-      { label: '✏️ Editar opção', value: 'editar_opcao' },
-      { label: '🔃 Alterar ordem', value: 'ordem_opcao' },
-      { label: '🗑️ Remover opção', value: 'remover_opcao' },
-      { label: '🔙 Voltar', value: 'voltar' },
+      { label: 'Alterar mensagem de selecao', value: 'msg_selecao', emoji: '✏️' },
+      { label: 'Criar opcao', value: 'criar_opcao', emoji: '➕' },
+      { label: 'Editar opcao', value: 'editar_opcao', emoji: '📝' },
+      { label: 'Alterar ordem', value: 'ordem_opcao', emoji: '🔃' },
+      { label: 'Remover opcao', value: 'remover_opcao', emoji: '🗑️' },
+      { label: 'Voltar', value: 'voltar', emoji: '🔙' }
+    ]);
+  return new ActionRowBuilder().addComponents(select);
+}
+
+function menuConfigEmbed() {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('embed_menu')
+    .setPlaceholder('O que deseja configurar?')
+    .addOptions([
+      { label: 'Titulo', value: 'titulo', emoji: '📝' },
+      { label: 'Descricao', value: 'descricao', emoji: '📄' },
+      { label: 'Cor', value: 'cor', emoji: '🎨' },
+      { label: 'Imagem', value: 'imagem', emoji: '🖼️' },
+      { label: 'Thumbnail', value: 'thumbnail', emoji: '🔲' },
+      { label: 'Rodape', value: 'rodape', emoji: '📋' },
+      { label: 'Autor', value: 'autor', emoji: '✍️' },
+      { label: 'Adicionar Botao', value: 'botao', emoji: '🔘' },
+      { label: 'Remover Ultimo Botao', value: 'remover_botao', emoji: '🗑️' },
+      { label: 'Enviar Embed', value: 'enviar', emoji: '✅' },
+      { label: 'Cancelar', value: 'cancelar', emoji: '❌' }
     ]);
   return new ActionRowBuilder().addComponents(select);
 }
 
 // =====================
-// GERAR TRANSCRIPT HTML
+// TRANSCRIPT HTML
 // =====================
+
 async function gerarTranscript(channel, ticketData) {
   let messages = [];
   try {
     const fetched = await channel.messages.fetch({ limit: 100 });
-    messages = [...fetched.values()].reverse();
-  } catch {}
+    messages = Array.from(fetched.values()).reverse();
+  } catch (e) {}
 
-  const linhas = messages.map(m => {
+  const linhas = messages.map(function(m) {
     const time = new Date(m.createdTimestamp).toLocaleString('pt-BR');
-    const content = m.content ? m.content.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
-    const embeds = m.embeds.length > 0 ? `<span style="color:#7289da">[embed]</span>` : '';
-    return `<div class="msg"><span class="time">${time}</span> <span class="author" style="color:#${m.author.accentColor ? m.author.accentColor.toString(16) : '7289da'}">${m.author.tag}</span>: ${content}${embeds}</div>`;
+    const tag = m.author.tag;
+    const content = (m.content || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const temEmbed = m.embeds.length > 0 ? ' [embed]' : '';
+    return '<div class="msg"><span class="time">' + time + '</span> '
+      + '<span class="author">' + tag + '</span>: '
+      + content + temEmbed + '</div>';
   }).join('\n');
 
-  return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<title>Transcript - ${channel.name}</title>
-<style>
-  body { background: #36393f; color: #dcddde; font-family: 'Segoe UI', sans-serif; padding: 20px; }
-  h1 { color: #ffffff; border-bottom: 1px solid #4f545c; padding-bottom: 10px; }
-  .info { background: #2f3136; padding: 10px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; color: #b9bbbe; }
-  .msg { padding: 4px 0; border-bottom: 1px solid #2f3136; font-size: 14px; }
-  .time { color: #72767d; font-size: 12px; }
-  .author { font-weight: bold; }
-</style>
-</head>
-<body>
-<h1>📋 Transcript do Ticket</h1>
-<div class="info">
-  <b>Canal:</b> #${channel.name}<br>
-  <b>Aberto por:</b> ${ticketData.abrirPor || 'Desconhecido'}<br>
-  <b>Tipo:</b> ${ticketData.tipo || 'Geral'}<br>
-  <b>Data de fechamento:</b> ${new Date().toLocaleString('pt-BR')}
-</div>
-${linhas}
-</body>
-</html>`;
+  const nomeCanal = channel.name;
+  const abriuPor = ticketData.abrirPor || 'Desconhecido';
+  const tipo = ticketData.tipo || 'Geral';
+  const dataFechamento = new Date().toLocaleString('pt-BR');
+
+  const html = '<!DOCTYPE html>\n'
+    + '<html lang="pt-BR">\n'
+    + '<head>\n'
+    + '<meta charset="UTF-8">\n'
+    + '<title>Transcript</title>\n'
+    + '<style>\n'
+    + 'body{background:#36393f;color:#dcddde;font-family:sans-serif;padding:20px}\n'
+    + 'h1{color:#fff;border-bottom:1px solid #4f545c;padding-bottom:10px}\n'
+    + '.info{background:#2f3136;padding:10px;border-radius:8px;margin-bottom:20px}\n'
+    + '.msg{padding:4px 0;border-bottom:1px solid #2f3136;font-size:14px}\n'
+    + '.time{color:#72767d;font-size:12px}\n'
+    + '.author{font-weight:bold;color:#7289da}\n'
+    + '</style>\n'
+    + '</head>\n'
+    + '<body>\n'
+    + '<h1>Transcript do Ticket</h1>\n'
+    + '<div class="info">'
+    + '<b>Canal:</b> #' + nomeCanal + '<br>'
+    + '<b>Aberto por:</b> ' + abriuPor + '<br>'
+    + '<b>Tipo:</b> ' + tipo + '<br>'
+    + '<b>Fechado em:</b> ' + dataFechamento
+    + '</div>\n'
+    + linhas + '\n'
+    + '</body>\n'
+    + '</html>';
+
+  return html;
 }
 
 // =====================
-// REGISTRAR COMANDOS
+// BOT PRONTO
 // =====================
-client.once(Events.ClientReady, async (c) => {
-  console.log(`🎫 Bot online como ${c.user.tag}`);
+
+client.once(Events.ClientReady, async function(c) {
+  console.log('Bot online como ' + c.user.tag);
 
   const commands = [
     new SlashCommandBuilder()
       .setName('painel')
-      .setDescription('Mostra o painel de autenticação'),
+      .setDescription('Mostra o painel de autenticacao'),
     new SlashCommandBuilder()
       .setName('embed')
       .setDescription('Cria uma embed personalizada'),
     new SlashCommandBuilder()
       .setName('ticket')
-      .setDescription('Gerencia os painéis de ticket')
-  ].map(cmd => cmd.toJSON());
+      .setDescription('Gerencia os paineis de ticket')
+  ].map(function(cmd) { return cmd.toJSON(); });
 
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
   try {
     await rest.put(Routes.applicationCommands(c.user.id), { body: commands });
-    console.log('✅ Comandos registrados.');
+    console.log('Comandos registrados.');
   } catch (err) {
     console.error(err);
   }
@@ -246,90 +281,118 @@ client.once(Events.ClientReady, async (c) => {
 // =====================
 // INTERAÇÕES
 // =====================
-client.on(Events.InteractionCreate, async (interaction) => {
 
-  // ========================
+client.on(Events.InteractionCreate, async function(interaction) {
+
+  // --------------------
   // SLASH COMMANDS
-  // ========================
+  // --------------------
+
   if (interaction.isChatInputCommand()) {
 
     if (interaction.commandName === 'painel') {
       const embed = new EmbedBuilder()
-        .setTitle('🔐 CDI | Auth')
-        .setDescription('Clique no botão abaixo para autenticar sua conta.')
+        .setTitle('CDI | Auth')
+        .setDescription('Clique no botao abaixo para autenticar sua conta.')
         .setColor(0x2b2d31)
         .setFooter({ text: 'Bot feito por Luckxz_7' })
         .setTimestamp();
-      const button = new ButtonBuilder()
+      const btn = new ButtonBuilder()
         .setCustomId('auth_button')
         .setLabel('Autenticar')
         .setStyle(ButtonStyle.Success);
-      const row = new ActionRowBuilder().addComponents(button);
+      const row = new ActionRowBuilder().addComponents(btn);
       return interaction.reply({ embeds: [embed], components: [row] });
     }
 
     if (interaction.commandName === 'embed') {
-      // mesmo sistema anterior de embed
       if (!temPermissao(interaction.member)) {
-        return interaction.reply({ content: '❌ **Sem Permissão!** Tente novamente.', ephemeral: true });
+        return interaction.reply({
+          content: 'Sem Permissao! Tente novamente.',
+          ephemeral: true
+        });
       }
-      // reutiliza sessão do embed anterior (simplificado aqui)
-      return interaction.reply({ content: 'Use o sistema de embed normalmente.', ephemeral: true });
+      sessoes.set(interaction.user.id, {
+        titulo: null, descricao: null, cor: '#2b2d31',
+        imagem: null, thumbnail: null, rodape: null,
+        autor: null, botoes: []
+      });
+      const preview = new EmbedBuilder()
+        .setTitle('Criador de Embed')
+        .setDescription('Use o menu abaixo para configurar sua embed.')
+        .setColor('#2b2d31');
+      return interaction.reply({
+        content: '## Configurador de Embed',
+        embeds: [preview],
+        components: [menuConfigEmbed()],
+        ephemeral: true
+      });
     }
 
     if (interaction.commandName === 'ticket') {
       if (!temPermissao(interaction.member)) {
-        return interaction.reply({ content: '❌ **Sem Permissão!** Tente novamente.', ephemeral: true });
+        return interaction.reply({
+          content: 'Sem Permissao! Tente novamente.',
+          ephemeral: true
+        });
       }
-
       return interaction.reply({
-        content: '## 🎫 Gerenciador de Tickets\nO que deseja fazer?',
-        components: [menuPrincipal()],
+        content: '## Gerenciador de Tickets\nO que deseja fazer?',
+        components: [menuPrincipalTicket()],
         ephemeral: true
       });
     }
   }
 
-  // ========================
-  // BOTÃO AUTH
-  // ========================
+  // --------------------
+  // BOTÕES
+  // --------------------
+
   if (interaction.isButton()) {
+
     if (interaction.customId === 'auth_button') {
-      return interaction.reply({ content: '✅ Você foi autenticado com sucesso!', ephemeral: true });
+      return interaction.reply({
+        content: 'Voce foi autenticado com sucesso!',
+        ephemeral: true
+      });
     }
 
-    // Fechar ticket
     if (interaction.customId.startsWith('fechar_ticket_')) {
       const channelId = interaction.channel.id;
       const ticketData = tickets.get(channelId);
+      const podeFechar = temPermissao(interaction.member)
+        || (ticketData && interaction.user.id === ticketData.abrirPorId);
 
-      if (!temPermissao(interaction.member) && interaction.user.id !== ticketData?.abrirPorId) {
-        return interaction.reply({ content: '❌ Sem permissão para fechar este ticket.', ephemeral: true });
+      if (!podeFechar) {
+        return interaction.reply({
+          content: 'Sem permissao para fechar este ticket.',
+          ephemeral: true
+        });
       }
 
-      await interaction.reply({ content: '🔒 Fechando ticket e gerando transcript...' });
+      await interaction.reply({ content: 'Fechando ticket e gerando transcript...' });
 
       try {
         const html = await gerarTranscript(interaction.channel, ticketData || {});
         const buffer = Buffer.from(html, 'utf-8');
-        const { AttachmentBuilder } = require('discord.js');
-        const attachment = new AttachmentBuilder(buffer, { name: `transcript-${interaction.channel.name}.html` });
+        const nomeArq = 'transcript-' + interaction.channel.name + '.html';
+        const attachment = new AttachmentBuilder(buffer, { name: nomeArq });
 
-        if (ticketData?.logsId) {
-          const logsChannel = interaction.guild.channels.cache.get(ticketData.logsId);
-          if (logsChannel) {
+        if (ticketData && ticketData.logsId) {
+          const logCh = interaction.guild.channels.cache.get(ticketData.logsId);
+          if (logCh) {
             const logEmbed = new EmbedBuilder()
-              .setTitle('🎫 Ticket Fechado')
+              .setTitle('Ticket Fechado')
               .setColor('#ff4444')
               .addFields(
-                { name: 'Canal', value: `#${interaction.channel.name}`, inline: true },
-                { name: 'Aberto por', value: ticketData.abrirPor || 'Desconhecido', inline: true },
-                { name: 'Tipo', value: ticketData.tipo || 'Geral', inline: true },
+                { name: 'Canal', value: '#' + interaction.channel.name, inline: true },
+                { name: 'Aberto por', value: (ticketData.abrirPor || 'Desconhecido'), inline: true },
+                { name: 'Tipo', value: (ticketData.tipo || 'Geral'), inline: true },
                 { name: 'Fechado por', value: interaction.user.tag, inline: true },
                 { name: 'Data', value: new Date().toLocaleString('pt-BR'), inline: true }
               )
               .setTimestamp();
-            await logsChannel.send({ embeds: [logEmbed], files: [attachment] });
+            await logCh.send({ embeds: [logEmbed], files: [attachment] });
           }
         }
 
@@ -337,82 +400,106 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.channel.delete();
       } catch (err) {
         console.error(err);
-        await interaction.editReply({ content: '❌ Erro ao fechar ticket.' });
+        try { await interaction.editReply({ content: 'Erro ao fechar ticket.' }); } catch (e) {}
       }
       return;
     }
   }
 
-  // ========================
-  // SELECT - ABRIR TICKET (usuário)
-  // ========================
+  // --------------------
+  // SELECT MENUS
+  // --------------------
+
   if (interaction.isStringSelectMenu()) {
 
+    // Abrir ticket
     if (interaction.customId.startsWith('ticket_abrir_')) {
       const painelId = interaction.customId.replace('ticket_abrir_', '');
       const guildPaineis = getPaineis(interaction.guild.id);
       const painel = guildPaineis.get(painelId);
 
-      if (!painel) return interaction.reply({ content: '❌ Painel não encontrado.', ephemeral: true });
+      if (!painel) {
+        return interaction.reply({ content: 'Painel nao encontrado.', ephemeral: true });
+      }
 
-      const opcaoIndex = parseInt(interaction.values[0]);
-      const opcao = painel.opcoes[opcaoIndex];
+      const jaAberto = Array.from(tickets.values()).find(function(t) {
+        return t.abrirPorId === interaction.user.id && t.guildId === interaction.guild.id;
+      });
 
-      // Verificar se já tem ticket aberto
-      const jaAberto = [...tickets.values()].find(t => t.abrirPorId === interaction.user.id && t.guildId === interaction.guild.id);
       if (jaAberto) {
-        return interaction.reply({ content: `❌ Você já tem um ticket aberto! <#${jaAberto.channelId}>`, ephemeral: true });
+        return interaction.reply({
+          content: 'Voce ja tem um ticket aberto! <#' + jaAberto.channelId + '>',
+          ephemeral: true
+        });
       }
 
       await interaction.deferReply({ ephemeral: true });
 
       try {
+        const opcaoIndex = parseInt(interaction.values[0]);
+        const opcao = painel.opcoes[opcaoIndex];
         const numero = getContador(interaction.guild.id);
-        const nomeCanal = `${interaction.user.username}-${numero}`.toLowerCase().replace(/[^a-z0-9-]/g, '');
+        const nomeBase = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const nomeCanal = nomeBase + '-' + numero;
 
         const permissoes = [
-          {
-            id: interaction.guild.id,
-            deny: [PermissionFlagsBits.ViewChannel]
-          },
+          { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
           {
             id: interaction.user.id,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ReadMessageHistory
+            ]
           },
           {
             id: client.user.id,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory]
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ManageChannels,
+              PermissionFlagsBits.ReadMessageHistory
+            ]
           }
         ];
 
         if (painel.cargoMarcadoId) {
           permissoes.push({
             id: painel.cargoMarcadoId,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ReadMessageHistory
+            ]
           });
         }
 
-        const canalTicket = await interaction.guild.channels.create({
+        const canalOpts = {
           name: nomeCanal,
           type: ChannelType.GuildText,
-          parent: painel.categoriaId || null,
           permissionOverwrites: permissoes
-        });
+        };
+        if (painel.categoriaId) canalOpts.parent = painel.categoriaId;
+
+        const canalTicket = await interaction.guild.channels.create(canalOpts);
+
+        let descTicket = 'Ola ' + interaction.user.toString() + '!\n';
+        descTicket += 'Aguarde a equipe responsavel lhe atender.';
+        if (painel.cargoMarcadoId) descTicket += '\n\n<@&' + painel.cargoMarcadoId + '>';
 
         const ticketEmbed = new EmbedBuilder()
-          .setTitle(`🎫 Ticket #${numero} — ${opcao?.label || 'Suporte'}`)
-          .setDescription(`Olá ${interaction.user}! Aguarde a equipe responsável lhe atender.${painel.cargoMarcadoId ? `\n\n<@&${painel.cargoMarcadoId}>` : ''}`)
-          .setColor(painel.cor || '#2b2d31')
-          .setFooter({ text: `Aberto por ${interaction.user.tag}` })
+          .setTitle('Ticket #' + numero + ' - ' + (opcao ? opcao.label : 'Suporte'))
+          .setDescription(descTicket)
+          .setFooter({ text: 'Aberto por ' + interaction.user.tag })
           .setTimestamp();
+        try { if (painel.cor) ticketEmbed.setColor(painel.cor); } catch (e) { ticketEmbed.setColor('#2b2d31'); }
 
         const fecharBtn = new ButtonBuilder()
-          .setCustomId(`fechar_ticket_${canalTicket.id}`)
-          .setLabel('🔒 Fechar Ticket')
+          .setCustomId('fechar_ticket_' + canalTicket.id)
+          .setLabel('Fechar Ticket')
           .setStyle(ButtonStyle.Danger);
 
         const row = new ActionRowBuilder().addComponents(fecharBtn);
-
         await canalTicket.send({ embeds: [ticketEmbed], components: [row] });
 
         tickets.set(canalTicket.id, {
@@ -420,133 +507,83 @@ client.on(Events.InteractionCreate, async (interaction) => {
           guildId: interaction.guild.id,
           abrirPorId: interaction.user.id,
           abrirPor: interaction.user.tag,
-          tipo: opcao?.label || 'Geral',
+          tipo: opcao ? opcao.label : 'Geral',
           logsId: painel.logsId
         });
 
-        await interaction.editReply({ content: `✅ Ticket aberto! ${canalTicket}` });
+        return interaction.editReply({ content: 'Ticket aberto! ' + canalTicket.toString() });
+
       } catch (err) {
         console.error(err);
-        await interaction.editReply({ content: '❌ Erro ao criar ticket. Verifique as permissões do bot.' });
+        return interaction.editReply({ content: 'Erro ao criar ticket. Verifique as permissoes do bot.' });
       }
-      return;
     }
 
-    // ========================
-    // MENU PRINCIPAL DO /ticket
-    // ========================
+    // Menu principal ticket
     if (interaction.customId === 'ticket_menu_principal') {
       const escolha = interaction.values[0];
+      const guildPaineis = getPaineis(interaction.guild.id);
 
       if (escolha === 'criar') {
-        const sessao = novaSessao();
-        sessoesTicket.set(interaction.user.id, { sessao, modo: 'criar', painelId: null });
-
-        const preview = montarEmbedPainel(sessao);
+        const sessao = novaSessaoTicket();
+        sessoesTicket.set(interaction.user.id, { sessao: sessao, modo: 'criar', painelId: null });
+        const preview = montarEmbed(sessao);
         return interaction.update({
-          content: '## 🎫 Criando Novo Painel\nConfigure abaixo:',
+          content: '## Criando Novo Painel',
           embeds: [preview],
           components: [menuConfigPainel()]
         });
       }
 
       if (escolha === 'editar') {
-        const guildPaineis = getPaineis(interaction.guild.id);
         if (guildPaineis.size === 0) {
-          return interaction.reply({ content: '❌ Nenhum painel salvo ainda.', ephemeral: true });
+          return interaction.reply({ content: 'Nenhum painel salvo ainda.', ephemeral: true });
         }
-        const options = [...guildPaineis.entries()].map(([id, p]) => ({
-          label: p.titulo || 'Sem título',
-          value: id,
-          description: `ID: ${id}`
-        }));
+        const options = Array.from(guildPaineis.entries()).map(function(entry) {
+          return { label: entry[1].titulo || 'Sem titulo', value: entry[0] };
+        });
         const select = new StringSelectMenuBuilder()
           .setCustomId('ticket_selecionar_editar')
           .setPlaceholder('Selecione o painel para editar')
           .addOptions(options);
         return interaction.update({
-          content: '## ✏️ Editar Painel\nQual painel deseja editar?',
+          content: '## Editar Painel',
           embeds: [],
           components: [new ActionRowBuilder().addComponents(select)]
         });
       }
 
       if (escolha === 'excluir') {
-        const guildPaineis = getPaineis(interaction.guild.id);
         if (guildPaineis.size === 0) {
-          return interaction.reply({ content: '❌ Nenhum painel salvo ainda.', ephemeral: true });
+          return interaction.reply({ content: 'Nenhum painel salvo ainda.', ephemeral: true });
         }
-        const options = [...guildPaineis.entries()].map(([id, p]) => ({
-          label: p.titulo || 'Sem título',
-          value: id
-        }));
+        const options = Array.from(guildPaineis.entries()).map(function(entry) {
+          return { label: entry[1].titulo || 'Sem titulo', value: entry[0] };
+        });
         const select = new StringSelectMenuBuilder()
           .setCustomId('ticket_selecionar_excluir')
           .setPlaceholder('Selecione o painel para excluir')
           .addOptions(options);
         return interaction.update({
-          content: '## 🗑️ Excluir Painel\nQual painel deseja excluir?',
+          content: '## Excluir Painel',
           embeds: [],
           components: [new ActionRowBuilder().addComponents(select)]
         });
       }
     }
 
-    // Selecionar painel para editar
     if (interaction.customId === 'ticket_selecionar_editar') {
       const painelId = interaction.values[0];
       const guildPaineis = getPaineis(interaction.guild.id);
       const painel = guildPaineis.get(painelId);
-      if (!painel) return interaction.reply({ content: '❌ Painel não encontrado.', ephemeral: true });
-
-      sessoesTicket.set(interaction.user.id, { sessao: { ...painel }, modo: 'editar', painelId });
-      const preview = montarEmbedPainel(painel);
+      if (!painel) return interaction.reply({ content: 'Painel nao encontrado.', ephemeral: true });
+      sessoesTicket.set(interaction.user.id, {
+        sessao: Object.assign({}, painel, { opcoes: painel.opcoes.slice() }),
+        modo: 'editar',
+        painelId: painelId
+      });
+      const preview = montarEmbed(painel);
       return interaction.update({
-        content: `## ✏️ Editando Painel: **${painel.titulo || 'Sem título'}**`,
+        content: '## Editando: ' + (painel.titulo || 'Sem titulo'),
         embeds: [preview],
-        components: [menuConfigPainel()]
-      });
-    }
-
-    // Selecionar painel para excluir
-    if (interaction.customId === 'ticket_selecionar_excluir') {
-      const painelId = interaction.values[0];
-      const guildPaineis = getPaineis(interaction.guild.id);
-      const painel = guildPaineis.get(painelId);
-      if (!painel) return interaction.reply({ content: '❌ Painel não encontrado.', ephemeral: true });
-
-      guildPaineis.delete(painelId);
-      return interaction.update({
-        content: `## ✅ Painel **${painel.titulo || 'Sem título'}** excluído com sucesso!`,
-        embeds: [],
-        components: [menuPrincipal()]
-      });
-    }
-
-    // ========================
-    // MENU CONFIG PAINEL
-    // ========================
-    if (interaction.customId === 'ticket_config_painel') {
-      const escolha = interaction.values[0];
-      const dados = sessoesTicket.get(interaction.user.id);
-      if (!dados) return interaction.reply({ content: '❌ Sessão expirada. Use /ticket novamente.', ephemeral: true });
-
-      if (escolha === 'cancelar') {
-        sessoesTicket.delete(interaction.user.id);
-        return interaction.update({ content: '❌ Cancelado.', embeds: [], components: [menuPrincipal()] });
-      }
-
-      if (escolha === 'opcoes') {
-        return interaction.update({
-          content: '## 📌 Gerenciar Opções\nEscolha o que deseja fazer:',
-          components: [menuOpcoesPainel()]
-        });
-      }
-
-      if (escolha === 'geral') {
-        const modal = new ModalBuilder()
-          .setCustomId('ticket_modal_geral')
-          .setTitle('Configurações Gerais')
-          .addComponents(
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('categoriaId').setLabel('ID da Categoria').se
+        
