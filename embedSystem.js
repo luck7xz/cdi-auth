@@ -1,88 +1,61 @@
-const {
-  SlashCommandBuilder,
-  REST,
-  Routes,
-  EmbedBuilder,
-  PermissionsBitField,
-  Events
-} = require('discord.js');
+import {
+    SlashCommandBuilder,
+    PermissionFlagsBits,
+    EmbedBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    StringSelectMenuBuilder,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle
+} from "discord.js";
 
-module.exports = (client) => {
+const sessions = new Map();
 
-  // Registrar comando
-  client.once('ready', async () => {
+export default {
+    data: new SlashCommandBuilder()
+        .setName("embed")
+        .setDescription("Criar embed personalizada")
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-    const commands = [
-      new SlashCommandBuilder()
-        .setName('embed')
-        .setDescription('Criar uma embed personalizada')
-        .addStringOption(option =>
-          option.setName('titulo')
-            .setDescription('Título da embed')
-            .setRequired(true))
-        .addStringOption(option =>
-          option.setName('descricao')
-            .setDescription('Descrição da embed')
-            .setRequired(true))
-        .addStringOption(option =>
-          option.setName('cor')
-            .setDescription('Cor em HEX (ex: #2f3136)')
-            .setRequired(false))
-    ].map(cmd => cmd.toJSON());
+    async execute(interaction) {
+        sessions.set(interaction.user.id, {
+            titulo: null, descricao: null, cor: "#2b2d31",
+            imagem: null, thumbnail: null, rodape: null,
+            autor: null, botoes: []
+        });
 
-    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+        const preview = new EmbedBuilder()
+            .setTitle("Criador de Embed")
+            .setDescription("Use o menu abaixo para configurar sua embed.")
+            .setColor("#2b2d31");
 
-    try {
-      await rest.put(
-        Routes.applicationCommands(client.user.id),
-        { body: commands }
-      );
-      console.log('✅ Comando /embed registrado.');
-    } catch (err) {
-      console.error('Erro ao registrar /embed:', err);
-    }
+        const menu = new StringSelectMenuBuilder()
+            .setCustomId("embed_menu")
+            .setPlaceholder("O que deseja configurar?")
+            .addOptions([
+                { label: "Titulo", value: "titulo", emoji: "📝" },
+                { label: "Descricao", value: "descricao", emoji: "📄" },
+                { label: "Cor", value: "cor", emoji: "🎨" },
+                { label: "Imagem", value: "imagem", emoji: "🖼️" },
+                { label: "Thumbnail", value: "thumbnail", emoji: "🔲" },
+                { label: "Rodape", value: "rodape", emoji: "📋" },
+                { label: "Autor", value: "autor", emoji: "✍️" },
+                { label: "Enviar Embed", value: "enviar", emoji: "✅" },
+                { label: "Cancelar", value: "cancelar", emoji: "❌" }
+            ]);
 
-  });
-
-  // Interação
-  client.on(Events.InteractionCreate, async (interaction) => {
-
-    if (!interaction.isChatInputCommand()) return;
-
-    if (interaction.commandName === 'embed') {
-
-      // Permissão
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({
-          content: '❌ Apenas administradores podem usar este comando.',
-          ephemeral: true
+            content: "## Configurador de Embed",
+            embeds: [preview],
+            components: [new ActionRowBuilder().addComponents(menu)],
+            ephemeral: true
         });
-      }
+    },
 
-      const titulo = interaction.options.getString('titulo');
-      const descricao = interaction.options.getString('descricao');
-      const cor = interaction.options.getString('cor') || '#2f3136';
-
-      try {
-        const embed = new EmbedBuilder()
-          .setTitle(titulo)
-          .setDescription(descricao)
-          .setColor(cor);
-
-        await interaction.reply({
-          embeds: [embed]
-        });
-
-      } catch (err) {
-        console.error(err);
-        await interaction.reply({
-          content: '❌ Erro ao criar embed. Verifique a cor HEX.',
-          ephemeral: true
-        });
-      }
-
+    async handleInteraction(interaction) {
+        // Aqui você pode colocar a lógica de modal, select e botões do embed
+        // Igual seu código anterior, mantendo sessions Map para armazenar alterações
     }
-
-  });
-
 };
