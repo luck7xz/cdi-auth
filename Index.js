@@ -498,7 +498,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const guildPaineis = getPaineis(interaction.guild.id);
       const painel = guildPaineis.get(painelId);
       if (!painel) return interaction.reply({ content: '❌ Painel não encontrado.', ephemeral: true });
-
       sessoesTicket.set(interaction.user.id, { sessao: { ...painel }, modo: 'editar', painelId });
       const preview = montarEmbedPainel(painel);
       return interaction.update({
