@@ -1,3 +1,5 @@
+require('dotenv').config(); // lê as variáveis do .env
+client.login(process.env.TOKEN); // usa o token do .env
 import { Client, GatewayIntentBits, Collection, Events } from "discord.js";
 import dotenv from "dotenv";
 
