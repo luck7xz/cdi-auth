@@ -1,46 +1,36 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
-const fs = require('fs');
+const { Client, GatewayIntentBits, Collection, Partials } = require('discord.js');
+const authSystem = require('./authSystem.js');
+const embedSystem = require('./embedSystem.js');
+const ticketSystem = require('./ticketSystem.js');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
-
-// Commands
-client.commands = new Collection();
-['AuthSystem', 'EmbedSystem', 'Ticket'].forEach(file => {
-    const command = require(`./${file}.js`);
-    client.commands.set(command.data.name, command);
+const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    partials: [Partials.Channel]
 });
 
+client.commands = new Collection();
+
+// Comandos
+client.commands.set('auth', authSystem);
+client.commands.set('embed', embedSystem);
+client.commands.set('ticket', ticketSystem);
+
 client.once('ready', () => {
-    console.log(`${client.user.tag} está online!`);
+    console.log(`Bot logado como ${client.user.tag}`);
 });
 
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand() && !interaction.isButton()) return;
+    if (!interaction.isChatInputCommand()) return;
 
-    // Slash Commands
-    if (interaction.isChatInputCommand()) {
-        const command = client.commands.get(interaction.commandName);
-        if (!command) return;
-        try {
-            await command.execute(interaction, client);
-        } catch (error) {
-            console.error(error);
-            await interaction.reply({ content: 'Ocorreu um erro ao executar o comando!', ephemeral: true });
-        }
-    }
+    const command = client.commands.get(interaction.commandName);
+    if (!command) return;
 
-    // Buttons
-    if (interaction.isButton()) {
-        for (const command of client.commands.values()) {
-            if (command.buttonExecute) {
-                try {
-                    await command.buttonExecute(interaction, client);
-                } catch (error) {
-                    console.error(error);
-                }
-            }
-        }
+    try {
+        await command.execute(interaction, client);
+    } catch (err) {
+        console.error(err);
+        await interaction.reply({ content: 'Ocorreu um erro ao executar este comando.', ephemeral: true });
     }
 });
 
