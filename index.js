@@ -1,37 +1,32 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, Collection, Partials } = require('discord.js');
-const authSystem = require('./authSystem.js');
-const embedSystem = require('./embedSystem.js');
-const ticketSystem = require('./ticketSystem.js');
+const { Client, GatewayIntentBits } = require('discord.js');
 
+// === CONFIGURAÇÕES DIRETAS ===
+const BOT_TOKEN ='MTQ3NjA1MTgxMjM1NTI3Njg1Mw.GprRje.f4CZ6svVNrWdJSfPsXcQhMFbOQCWoWyCS0jJe8';
+const AUTORIZED_USERS = ['1473652628209532940']; // Coloque IDs que podem usar o auth
+
+// Criando o client
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
-    partials: [Partials.Channel]
 });
 
-client.commands = new Collection();
-
-// Comandos
-client.commands.set('auth', authSystem);
-client.commands.set('embed', embedSystem);
-client.commands.set('ticket', ticketSystem);
-
+// Evento quando o bot estiver pronto
 client.once('ready', () => {
     console.log(`Bot logado como ${client.user.tag}`);
 });
 
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand()) return;
+// Evento de mensagem
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
 
-    const command = client.commands.get(interaction.commandName);
-    if (!command) return;
-
-    try {
-        await command.execute(interaction, client);
-    } catch (err) {
-        console.error(err);
-        await interaction.reply({ content: 'Ocorreu um erro ao executar este comando.', ephemeral: true });
+    // Comando de autenticação
+    if (message.content.startsWith('!auth')) {
+        if (AUTORIZED_USERS.includes(message.author.id)) {
+            message.reply('✅ Você está autorizado!');
+        } else {
+            message.reply('❌ Você não tem permissão para usar este comando.');
+        }
     }
 });
 
-client.login(process.env.TOKEN);
+// Login do bot
+client.login(BOT_TOKEN);
