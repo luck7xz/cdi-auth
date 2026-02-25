@@ -2,18 +2,13 @@
   "name": "cdi-bot",
   "version": "1.0.0",
   "description": "Feito pelo Dev Luckxz_7",
-  "main": "index.js",
-  "type": "commonjs",
+  "main": "Index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node Index.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.3.1"
-  },
-  "engines": {
-    "node": ">=14.14.1"
-  },
-  "author": "Luckxz_7",
-  "license": "MIT"
+    "discord.js": "^14.11.0",
+    "dotenv": "^16.3.1",
+    "fs": "^0.0.1-security"
+  }
 }
