@@ -1,36 +1,63 @@
-const { 
-  Client, 
-  GatewayIntentBits, 
-  EmbedBuilder, 
-  ActionRowBuilder, 
-  ButtonBuilder, 
-  ButtonStyle 
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  Events
 } = require('discord.js');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-client.once('ready', () => {
-  console.log(`Logado como ${client.user.tag}`);
+// 🔐 Quando o bot ligar
+client.once(Events.ClientReady, async (c) => {
+  console.log(`🔐 CDI | Auth online como ${c.user.tag}`);
+
+  // Registrar comando automaticamente
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('painel')
+      .setDescription('Mostra o painel de autenticação')
+  ].map(cmd => cmd.toJSON());
+
+  const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
+  try {
+    await rest.put(
+      Routes.applicationCommands(c.user.id),
+      { body: commands }
+    );
+    console.log('✅ Comando /painel registrado.');
+  } catch (err) {
+    console.error(err);
+  }
 });
 
-client.on('interactionCreate', async interaction => {
+// 🔘 Interações
+client.on(Events.InteractionCreate, async (interaction) => {
 
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'painel') {
 
       const embed = new EmbedBuilder()
-        .setTitle('📌 Painel Discloud')
-        .setDescription('Clique no botão abaixo')
-        .setColor(0x5865F2);
+        .setTitle('🔐 CDI | Auth')
+        .setDescription('Clique no botão abaixo para autenticar sua conta.')
+        .setColor(0x2b2d31)
+        .setFooter({ text: 'Bot feito por Luckxz_7' })
+        .setTimestamp();
 
-      const botao = new ButtonBuilder()
-        .setCustomId('botao1')
-        .setLabel('Clique aqui')
-        .setStyle(ButtonStyle.Primary);
+      const button = new ButtonBuilder()
+        .setCustomId('auth_button')
+        .setLabel('Autenticar')
+        .setStyle(ButtonStyle.Success);
 
-      const row = new ActionRowBuilder().addComponents(botao);
+      const row = new ActionRowBuilder().addComponents(button);
 
       await interaction.reply({
         embeds: [embed],
@@ -40,9 +67,9 @@ client.on('interactionCreate', async interaction => {
   }
 
   if (interaction.isButton()) {
-    if (interaction.customId === 'botao1') {
+    if (interaction.customId === 'auth_button') {
       await interaction.reply({
-        content: 'Você clicou 🔥',
+        content: '✅ Você foi autenticado com sucesso!',
         ephemeral: true
       });
     }
