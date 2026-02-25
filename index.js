@@ -1,47 +1,66 @@
-require('dotenv').config(); // lê as variáveis do .env
-client.login(process.env.TOKEN); // usa o token do .env
-import { Client, GatewayIntentBits, Collection, Events } from "discord.js";
-import dotenv from "dotenv";
+require('dotenv').config();
+const { Client, GatewayIntentBits, Events } = require('discord.js');
 
-dotenv.config();
-
-import ticketCommand from "./ticketSystem.js";
-import embedCommand from "./embedSystem.js";
-import authCommand from "./authSystem.js";
+// Importa os sistemas separados
+const authSystem = require('./authSystem.js');
+const embedSystem = require('./embedSystem.js');
+const ticketSystem = require('./ticketSystem.js');
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
-client.commands = new Collection();
-client.commands.set(ticketCommand.data.name, ticketCommand);
-client.commands.set(embedCommand.data.name, embedCommand);
-client.commands.set(authCommand.data.name, authCommand);
+// Quando o bot estiver online
+client.once(Events.ClientReady, async (c) => {
+  console.log(`Bot online como ${c.user.tag}`);
 
-client.once(Events.ClientReady, () => {
-    console.log(`✅ ${client.user.tag} está online!`);
+  // Registrar comandos globais
+  const commands = [
+    authSystem.slashCommand(),
+    embedSystem.slashCommand(),
+    ticketSystem.slashCommand()
+  ].map(cmd => cmd.toJSON());
+
+  const { REST } = require('discord.js');
+  const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
+  try {
+    await rest.put(Routes.applicationCommands(c.user.id), { body: commands });
+    console.log('Comandos registrados.');
+  } catch (err) {
+    console.error('Erro ao registrar comandos:', err);
+  }
 });
 
+// Captura todas as interações
 client.on(Events.InteractionCreate, async (interaction) => {
-    try {
-        if (interaction.isChatInputCommand()) {
-            const command = client.commands.get(interaction.commandName);
-            if (!command) return;
-            await command.execute(interaction, client);
-        }
-
-        if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
-            if (ticketCommand.handleInteraction) await ticketCommand.handleInteraction(interaction, client);
-            if (embedCommand.handleInteraction) await embedCommand.handleInteraction(interaction, client);
-            if (authCommand.handleInteraction) await authCommand.handleInteraction(interaction, client);
-        }
-    } catch (err) {
-        console.error("Erro no interactionCreate:", err);
+  try {
+    // Auth System
+    if (interaction.isChatInputCommand() && interaction.commandName === 'auth') {
+      return authSystem.handle(interaction, client);
     }
-});
 
-client.login(process.env.TOKEN);
+    // Embed System
+    if (interaction.isChatInputCommand() && interaction.commandName === 'embed') {
+      return embedSystem.handle(interaction, client);
+    }
+
+    // Ticket System
+    if (interaction.isChatInputCommand() && interaction.commandName === 'ticket') {
+      return ticketSystem.handle(interaction, client);
+    }
+
+    // Botões, modais e selects
+    if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
+      // Auth buttons
+      if (interaction.customId.startsWith('auth_')) {
+        return authSystem.handleButton(interaction, client);
+      }
+
+      // Embed modals/buttons
+      if (interaction.customId.startsWith('embed_')) {
+        return
